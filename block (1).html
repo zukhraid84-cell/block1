@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Tetris Fixed Rotation</title>
+    <style>
+        body { 
+            background: #222; color: white; font-family: Arial, sans-serif;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; 
+            height: 100vh; margin: 0; 
+        }
+        .stats { margin-bottom: 10px; font-size: 20px; }
+        canvas { border: 3px solid #555; background-color: #000; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+
+<div class="stats">
+    Счет: <span id="score">0</span> | Рекорд: <span id="highscore">0</span>
+</div>
+<canvas id="tetris" width="300" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('tetris');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const highscoreElement = document.getElementById('highscore');
+
+    const BLOCK_SIZE = 30;
+    const COLS = 10;
+    const ROWS = 20;
+
+    // Определение фигур (каждая в квадрате для корректного вращения)
+    const SHAPES = [
+        [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
+        [[0,1,0],[1,1,1],[0,0,0]],               // T
+        [[1,1],[1,1]],                           // O
+        [[0,1,1],[1,1,0],[0,0,0]],               // S
+        [[1,1,0],[0,1,1],[0,0,0]],               // Z
+        [[1,0,0],[1,1,1],[0,0,0]],               // L
+        [[0,0,1],[1,1,1],[0,0,0]]                // J
+    ];
+
+    const COLORS = ['#00f0f0', '#a000f0', '#f0f000', '#00f000', '#f00000', '#f0a000', '#0000f0'];
+
+    let score = 0;
+    let highscore = localStorage.getItem('t-highscore') || 0;
+    highscoreElement.innerText = highscore;
+
+    let grid = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+
+    function createPiece() {
+        const id = Math.floor(Math.random() * SHAPES.length);
+        return {
+            x: Math.floor(COLS / 2) - 2,
+            y: 0,
+            shape: SHAPES[id],
+            color: COLORS[id]
+        };
+    }
+
+    let piece = createPiece();
+    let lastTime = 0;
+    let dropCounter = 0;
+    let dropInterval = 800;
+
+    // ПРАВИЛЬНЫЙ ПОВОРОТ МАТРИЦЫ
+    function rotate(matrix) {
+        return matrix[0].map((_, i) => matrix.map(row => row[i]).reverse());
+    }
+
+    function collide(pX, pY, pShape) {
+        for (let y = 0; y < pShape.length; y++) {
+            for (let x = 0; x < pShape[y].length; x++) {
+                if (pShape[y][x]) {
+                    let newX = pX + x;
+                    let newY = pY + y;
+                    if (newX < 0 || newX >= COLS || newY >= ROWS || (newY >= 0 && grid[newY][newX])) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function merge() {
+        piece.shape.forEach((row, y) => {
+            row.forEach((value, x) => {
+                if (value) {
+                    if (piece.y + y >= 0) {
+                        grid[piece.y + y][piece.x + x] = piece.color;
+                    }
+                }
+            });
+        });
+    }
+
+    function clearLines() {
+        let lines = 0;
+        for (let y = ROWS - 1; y >= 0; y--) {
+            if (grid[y].every(cell => cell !== null)) {
+                grid.splice(y, 1);
+                grid.unshift(Array(COLS).fill(null));
+                lines++;
+                y++;
+            }
+        }
+        if (lines > 0) {
+            const points = [0, 100, 300, 700, 1500];
+            score += points[lines];
+            scoreElement.innerText = score;
+            if (score > highscore) {
+                highscore = score;
+                localStorage.setItem('t-highscore', highscore);
+                highscoreElement.innerText = highscore;
+            }
+        }
+    }
+
+    function draw() {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Рисуем сетку
+        ctx.strokeStyle = '#222';
+        for(let x=0; x<=canvas.width; x+=BLOCK_SIZE) {
+            ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for(let y=0; y<=canvas.height; y+=BLOCK_SIZE) {
+            ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+
+        // Рисуем поле
+        grid.forEach((row, y) => {
+            row.forEach((color, x) => {
+                if (color) drawBlock(x, y, color);
+            });
+        });
+
+        // Рисуем фигуру
+        piece.shape.forEach((row, y) => {
+            row.forEach((value, x) => {
+                if (value) drawBlock(piece.x + x, piece.y + y, piece.color);
+            });
+        });
+    }
+
+    function drawBlock(x, y, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+    }
+
+    function resetGame() {
+        grid = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+        score = 0;
+        scoreElement.innerText = score;
+        piece = createPiece();
+    }
+
+    function update(time = 0) {
+        const deltaTime = time - lastTime;
+        lastTime = time;
+        dropCounter += deltaTime;
+
+        if (dropCounter > dropInterval) {
+            if (!collide(piece.x, piece.y + 1, piece.shape)) {
+                piece.y++;
+            } else {
+                merge();
+                clearLines();
+                piece = createPiece();
+                if (collide(piece.x, piece.y, piece.shape)) resetGame();
+            }
+            dropCounter = 0;
+        }
+        draw();
+        requestAnimationFrame(update);
+    }
+
+    window.addEventListener('keydown', e => {
+        if (e.keyCode === 37 && !collide(piece.x - 1, piece.y, piece.shape)) piece.x--;
+        if (e.keyCode === 39 && !collide(piece.x + 1, piece.y, piece.shape)) piece.x++;
+        if (e.keyCode === 40 && !collide(piece.x, piece.y + 1, piece.shape)) piece.y++;
+        if (e.keyCode === 38) {
+            const rotated = rotate(piece.shape);
+            if (!collide(piece.x, piece.y, rotated)) piece.shape = rotated;
+        }
+    });
+
+    update();
+</script>
+</body>
+</html>
